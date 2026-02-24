@@ -1,0 +1,25 @@
+{
+  "pipeline_name": "dbt-prod",
+  "environment": "prod",
+  "run_id": "run_2026_02_24_001",
+  "status": "failed",
+  "owner": "data-platform",
+  "manifest": {
+    "parent_map": {
+      "model.analytics.orders": ["model.staging.stg_orders"]
+    },
+    "child_map": {
+      "model.analytics.orders": ["model.analytics.orders_mart", "model.analytics.exec_dashboard"]
+    }
+  },
+  "run_results": {
+    "results": [
+      {
+        "status": "error",
+        "unique_id": "model.analytics.orders",
+        "message": "Database Error in model orders: column order_total does not exist",
+        "compiled_code": "select order_total from stg_orders"
+      }
+    ]
+  }
+}
