@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 @dataclass(frozen=True)
@@ -32,6 +37,10 @@ class Settings:
     # M5: dbt Validation
     dbt_project_dir: str = os.getenv("DBT_PROJECT_DIR", "")
     dbt_profiles_dir: str = os.getenv("DBT_PROFILES_DIR", "")
+
+    # Read-only viewer
+    readonly_allow_remote: bool = os.getenv("READONLY_ALLOW_REMOTE", "false").lower() == "true"
+    readonly_view_token: str = os.getenv("READONLY_VIEW_TOKEN", "")
 
 
 settings = Settings()

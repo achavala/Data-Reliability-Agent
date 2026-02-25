@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DRA Read-only Viewer</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --ink: #12263a;
+      --muted: #5e738a;
+      --accent: #0c7a6a;
+      --border: #d6e2ee;
+      --warn: #7f1d1d;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: radial-gradient(circle at top right, #e9f9f3, var(--bg) 35%);
+    }
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    h1 { margin: 0 0 12px 0; }
+    .muted { color: var(--muted); }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    input, select, button {
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font: inherit;
+    }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border-color: var(--accent);
+      cursor: pointer;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 14px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    th, td {
+      text-align: left;
+      padding: 10px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th { background: #f8fbff; }
+    tr:hover { background: #f7fffc; }
+    .clickable { cursor: pointer; }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      padding: 12px;
+    }
+    pre {
+      margin: 0;
+      padding: 12px;
+      border-top: 1px solid var(--border);
+      background: #fbfdff;
+      overflow: auto;
+      max-height: 260px;
+      font-size: 12px;
+    }
+    .error {
+      color: var(--warn);
+      font-weight: 600;
+      margin-top: 8px;
+    }
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>DRA Read-only Viewer</h1>
+    <p class="muted">Local incident and audit visibility. No write operations are performed from this page.</p>
+
+    <div class="toolbar">
+      <label>Status</label>
+      <select id="status">
+        <option value="">all</option>
+        <option value="open">open</option>
+        <option value="awaiting_approval">awaiting_approval</option>
+        <option value="approved">approved</option>
+        <option value="rejected">rejected</option>
+        <option value="blocked">blocked</option>
+      </select>
+      <label>Limit</label>
+      <input id="limit" type="number" min="1" max="200" value="25" />
+      <label>Token</label>
+      <input id="token" type="password" placeholder="optional viewer token" />
+      <button id="refresh">Refresh</button>
+    </div>
+
+    <div id="error" class="error"></div>
+
+    <div class="layout">
+      <div class="panel">
+        <table>
+          <thead>
+            <tr>
+              <th>Incident</th>
+              <th>Status</th>
+              <th>Pipeline</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody id="incidents"></tbody>
+        </table>
+      </div>
+
+      <div class="panel" id="detailPanel">
+        <div class="grid" id="detailMeta"></div>
+        <pre id="detailJson">Select an incident to view triage, remediation, validation, and audit events.</pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const incidentsEl = document.getElementById("incidents");
+    const detailMetaEl = document.getElementById("detailMeta");
+    const detailJsonEl = document.getElementById("detailJson");
+    const errorEl = document.getElementById("error");
+
+    function getToken() {
+      const queryToken = new URLSearchParams(window.location.search).get("token");
+      const inputToken = document.getElementById("token").value;
+      return inputToken || queryToken || "";
+    }
+
+    async function api(path) {
+      const token = getToken();
+      const headers = token ? { "X-Viewer-Token": token } : {};
+      const response = await fetch(path, { headers });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(`HTTP ${response.status}: ${text}`);
+      }
+      return response.json();
+    }
+
+    async function loadIncidents() {
+      errorEl.textContent = "";
+      incidentsEl.innerHTML = "";
+
+      const status = document.getElementById("status").value;
+      const limit = Number(document.getElementById("limit").value || 25);
+
+      const query = new URLSearchParams();
+      if (status) query.set("status", status);
+      query.set("limit", String(limit));
+
+      try {
+        const data = await api(`/api/readonly/incidents?${query.toString()}`);
+        for (const row of data.incidents) {
+          const tr = document.createElement("tr");
+          tr.className = "clickable";
+          tr.innerHTML = `
+            <td>${row.incident_id}</td>
+            <td>${row.status}</td>
+            <td>${row.pipeline_name}</td>
+            <td>${new Date(row.updated_at).toLocaleString()}</td>
+          `;
+          tr.addEventListener("click", () => loadIncidentDetail(row.incident_id));
+          incidentsEl.appendChild(tr);
+        }
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    }
+
+    async function loadIncidentDetail(incidentId) {
+      errorEl.textContent = "";
+      try {
+        const [detail, events] = await Promise.all([
+          api(`/api/readonly/incidents/${incidentId}`),
+          api(`/api/readonly/incidents/${incidentId}/events?limit=50`),
+        ]);
+
+        detailMetaEl.innerHTML = `
+          <div><strong>Incident</strong><br>${detail.incident_id}</div>
+          <div><strong>Status</strong><br>${detail.status}</div>
+          <div><strong>Pipeline</strong><br>${detail.pipeline_name}</div>
+          <div><strong>Run</strong><br>${detail.run_id}</div>
+          <div><strong>Severity</strong><br>${detail.severity}</div>
+          <div><strong>PR</strong><br>${detail.pr_url ? `<a href="${detail.pr_url}" target="_blank">#${detail.pr_number}</a>` : "none"}</div>
+        `;
+
+        const payload = {
+          detail,
+          recent_audit_events: events,
+        };
+        detailJsonEl.textContent = JSON.stringify(payload, null, 2);
+      } catch (err) {
+        errorEl.textContent = err.message;
+      }
+    }
+
+    document.getElementById("refresh").addEventListener("click", loadIncidents);
+    loadIncidents();
+  </script>
+</body>
+</html>
