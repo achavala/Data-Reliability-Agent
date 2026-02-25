@@ -8,3 +8,7 @@ dist/
 build/
 .claude/
 eval/traces/*.json
+
+# dbt build artifacts
+**/target/
+**/logs/dbt.log

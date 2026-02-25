@@ -1,0 +1,12 @@
+dra_test:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: localhost
+      port: 5433
+      user: dra
+      password: dra
+      dbname: dra
+      schema: dbt_test
+      threads: 1

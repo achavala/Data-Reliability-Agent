@@ -1,0 +1,33 @@
+version: 2
+
+models:
+  - name: orders
+    description: "Enriched orders with customer details"
+    columns:
+      - name: order_id
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        tests:
+          - not_null
+      - name: customer_name
+        tests:
+          - not_null
+      - name: order_total
+        tests:
+          - not_null
+
+  - name: customer_summary
+    description: "One row per customer with order aggregates"
+    columns:
+      - name: customer_id
+        tests:
+          - unique
+          - not_null
+      - name: total_orders
+        tests:
+          - not_null
+      - name: total_spent
+        tests:
+          - not_null
