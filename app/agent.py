@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from app.config import settings
-from app.db import insert_audit_event
+from app.db import insert_agent_trace, insert_audit_event
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -254,6 +254,7 @@ def _run_llm_agent_loop(
         }
     ]
 
+    step_counter = 0
     response = None
     for iteration in range(MAX_AGENT_ITERATIONS):
         start = time.time()
@@ -280,6 +281,24 @@ def _run_llm_agent_loop(
             },
         )
 
+        insert_agent_trace(
+            incident_id,
+            step_index=step_counter,
+            step_type="llm_call",
+            input_json={"messages_count": len(messages), "iteration": iteration},
+            output_json={
+                "stop_reason": response.stop_reason,
+                "content_types": [b.type for b in response.content],
+            },
+            model_name=settings.anthropic_model,
+            token_usage={
+                "input_tokens": response.usage.input_tokens,
+                "output_tokens": response.usage.output_tokens,
+            },
+            latency_ms=latency_ms,
+        )
+        step_counter += 1
+
         if response.stop_reason == "tool_use":
             # Execute each tool call and collect results
             tool_results = []
@@ -298,6 +317,18 @@ def _run_llm_agent_loop(
                             "latency_ms": tool_latency,
                         },
                     )
+
+                    insert_agent_trace(
+                        incident_id,
+                        step_index=step_counter,
+                        step_type=f"tool_{block.name}",
+                        input_json=block.input,
+                        output_json={"result_summary": json.dumps(result, default=str)[:2000]},
+                        model_name=None,
+                        token_usage=None,
+                        latency_ms=tool_latency,
+                    )
+                    step_counter += 1
 
                     # Store proposed patch from the tool for later extraction
                     if block.name == "propose_patch" and "patch_sql" in result:
@@ -320,6 +351,20 @@ def _run_llm_agent_loop(
 
     # Parse the final response
     triage_result, remediation = _parse_agent_output(response, context)
+
+    insert_agent_trace(
+        incident_id,
+        step_index=step_counter,
+        step_type="parse_output",
+        input_json={"final_iteration": iteration},
+        output_json={
+            "triage_keys": list(triage_result.keys()),
+            "has_patch": bool(remediation.get("proposed_patch")),
+        },
+        model_name=None,
+        token_usage=None,
+        latency_ms=None,
+    )
 
     patch = remediation.get("proposed_patch", "")
     validation = validate_patch(patch)
@@ -399,17 +444,54 @@ def run_agent_loop(
         return _run_llm_agent_loop(incident_id, run_row, vector_store)
 
     # Original heuristic path (unchanged behavior)
+    step_counter = 0
+
+    start = time.time()
     evidence = retrieve_evidence(run_row)
+    latency = int((time.time() - start) * 1000)
     insert_audit_event(incident_id, "evidence_retrieved", evidence)
+    insert_agent_trace(
+        incident_id, step_counter, "retrieve_evidence",
+        {"run_id": run_row["run_id"]},
+        {"failed_node_count": len(evidence.get("failed_nodes", []))},
+        latency_ms=latency,
+    )
+    step_counter += 1
 
+    start = time.time()
     triage_result = triage(evidence)
+    latency = int((time.time() - start) * 1000)
     insert_audit_event(incident_id, "triage_completed", triage_result)
+    insert_agent_trace(
+        incident_id, step_counter, "triage",
+        {"failed_node_count": len(evidence.get("failed_nodes", []))},
+        {"hypothesis_count": len(triage_result.get("root_cause_hypotheses", []))},
+        latency_ms=latency,
+    )
+    step_counter += 1
 
+    start = time.time()
     remediation = propose_remediation(triage_result, evidence)
+    latency = int((time.time() - start) * 1000)
     insert_audit_event(incident_id, "remediation_proposed", remediation)
+    insert_agent_trace(
+        incident_id, step_counter, "propose_remediation",
+        {"strategy": triage_result["root_cause_hypotheses"][0]["cause"]},
+        {"risk": remediation.get("risk", "unknown")},
+        latency_ms=latency,
+    )
+    step_counter += 1
 
     patch = remediation["proposed_patch"]
+    start = time.time()
     validation = validate_patch(patch)
+    latency = int((time.time() - start) * 1000)
     insert_audit_event(incident_id, "patch_validated", validation)
+    insert_agent_trace(
+        incident_id, step_counter, "validate_patch",
+        {"patch_length": len(patch)},
+        {"dbt_compile": validation["dbt_compile"], "safety_checks": validation["safety_checks"]},
+        latency_ms=latency,
+    )
 
     return triage_result, remediation, validation, patch

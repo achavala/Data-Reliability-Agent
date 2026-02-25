@@ -14,6 +14,7 @@ from app.db import (
     add_approval,
     count_incidents,
     create_incident,
+    get_agent_traces,
     get_approvals_for_incident,
     get_audit_events_for_incident,
     get_incident_detail,
@@ -34,6 +35,7 @@ from app.lineage import LineageGraph
 from app.models import (
     AgentRunRequest,
     AgentRunResponse,
+    AgentTraceResponse,
     ApprovalItemResponse,
     ApprovalRequest,
     ApprovalResponse,
@@ -431,6 +433,20 @@ async def create_incident_pr_endpoint(incident_id: str):
         branch_name=pr_result["branch_name"],
         status=pr_result["status"],
     )
+
+
+# ---------------------------------------------------------------------------
+# M7: Agent traces
+# ---------------------------------------------------------------------------
+
+
+@app.get("/incidents/{incident_id}/traces", response_model=list[AgentTraceResponse])
+def get_incident_traces(incident_id: str) -> list[AgentTraceResponse]:
+    run_row = get_run_by_incident(incident_id)
+    if not run_row:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    traces = get_agent_traces(incident_id)
+    return [AgentTraceResponse(**t) for t in traces]
 
 
 # ---------------------------------------------------------------------------

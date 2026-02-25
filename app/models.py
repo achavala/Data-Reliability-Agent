@@ -80,3 +80,73 @@ class PRStatusResponse(BaseModel):
     pr_url: str
     branch_name: str
     status: str
+
+
+# Read-only viewer
+class IncidentSummary(BaseModel):
+    incident_id: str
+    run_id: str
+    severity: str
+    status: str
+    pipeline_name: str
+    environment: str
+    owner: str | None = None
+    run_status: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class IncidentListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    incidents: list[IncidentSummary]
+
+
+class IncidentDetailResponse(BaseModel):
+    incident_id: str
+    run_id: str
+    severity: str
+    status: str
+    pipeline_name: str
+    environment: str
+    owner: str | None = None
+    run_status: str
+    created_at: datetime
+    updated_at: datetime
+    triage: dict[str, Any] | None = None
+    remediation: dict[str, Any] | None = None
+    validation: dict[str, Any] | None = None
+    proposed_patch: str | None = None
+    requires_human_approval: bool
+    pr_number: int | None = None
+    pr_url: str | None = None
+    pr_status: str | None = None
+
+
+class AuditEventResponse(BaseModel):
+    event_id: int
+    event_type: str
+    payload: dict[str, Any]
+    created_at: datetime
+
+
+class ApprovalItemResponse(BaseModel):
+    approval_id: int
+    approver: str
+    decision: str
+    comment: str | None = None
+    created_at: datetime
+
+
+class AgentTraceResponse(BaseModel):
+    trace_id: int
+    incident_id: str
+    step_index: int
+    step_type: str
+    input_json: dict[str, Any]
+    output_json: dict[str, Any]
+    model_name: str | None = None
+    token_usage: dict[str, Any] | None = None
+    latency_ms: int | None = None
+    created_at: datetime
