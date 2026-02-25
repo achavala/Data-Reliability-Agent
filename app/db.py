@@ -176,7 +176,9 @@ def get_run_by_incident(incident_id: str) -> dict[str, Any] | None:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT i.incident_id, i.status AS incident_status, r.*
+                SELECT i.*, r.run_results_json, r.manifest_json,
+                       r.status AS run_status, r.pipeline_id,
+                       r.started_at, r.created_at AS run_created_at
                 FROM fact_incident i
                 JOIN fact_pipeline_run r ON r.run_id = i.run_id
                 WHERE i.incident_id = %s
@@ -399,6 +401,126 @@ def get_agent_traces(incident_id: str) -> list[dict[str, Any]]:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT * FROM agent_trace WHERE incident_id = %s ORDER BY step_index",
+                (incident_id,),
+            )
+            return cur.fetchall()
+
+
+# ---------------------------------------------------------------------------
+# Read-only viewer queries
+# ---------------------------------------------------------------------------
+
+
+def list_incidents(limit: int = 25, offset: int = 0, status: str | None = None) -> list[dict[str, Any]]:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    i.incident_id,
+                    i.run_id,
+                    i.severity,
+                    i.status,
+                    i.created_at,
+                    i.updated_at,
+                    r.status AS run_status,
+                    p.name AS pipeline_name,
+                    p.environment,
+                    p.owner
+                FROM fact_incident i
+                JOIN fact_pipeline_run r ON r.run_id = i.run_id
+                JOIN dim_pipeline p ON p.pipeline_id = r.pipeline_id
+                WHERE (%s IS NULL OR i.status = %s)
+                ORDER BY i.updated_at DESC
+                LIMIT %s OFFSET %s
+                """,
+                (status, status, limit, offset),
+            )
+            return cur.fetchall()
+
+
+def count_incidents(status: str | None = None) -> int:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COUNT(*) AS total
+                FROM fact_incident i
+                WHERE (%s IS NULL OR i.status = %s)
+                """,
+                (status, status),
+            )
+            row = cur.fetchone()
+            return int(row["total"]) if row else 0
+
+
+def get_incident_detail(incident_id: str) -> dict[str, Any] | None:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    i.incident_id,
+                    i.run_id,
+                    i.severity,
+                    i.status,
+                    i.created_at,
+                    i.updated_at,
+                    i.triage_json,
+                    i.remediation_json,
+                    i.validation_json,
+                    i.proposed_patch,
+                    i.requires_human_approval,
+                    r.status AS run_status,
+                    p.name AS pipeline_name,
+                    p.environment,
+                    p.owner,
+                    pr.github_pr_number AS pr_number,
+                    pr.github_pr_url AS pr_url,
+                    pr.status AS pr_status
+                FROM fact_incident i
+                JOIN fact_pipeline_run r ON r.run_id = i.run_id
+                JOIN dim_pipeline p ON p.pipeline_id = r.pipeline_id
+                LEFT JOIN LATERAL (
+                    SELECT ip.github_pr_number, ip.github_pr_url, ip.status
+                    FROM incident_pr ip
+                    WHERE ip.incident_id = i.incident_id
+                    ORDER BY ip.created_at DESC
+                    LIMIT 1
+                ) pr ON true
+                WHERE i.incident_id = %s
+                """,
+                (incident_id,),
+            )
+            return cur.fetchone()
+
+
+def get_audit_events_for_incident(incident_id: str, limit: int = 100) -> list[dict[str, Any]]:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT event_id, event_type, payload, created_at
+                FROM audit_event
+                WHERE incident_id = %s
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                (incident_id, limit),
+            )
+            return cur.fetchall()
+
+
+def get_approvals_for_incident(incident_id: str) -> list[dict[str, Any]]:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT approval_id, approver, decision, comment, created_at
+                FROM approvals
+                WHERE incident_id = %s
+                ORDER BY created_at DESC
+                """,
                 (incident_id,),
             )
             return cur.fetchall()

@@ -83,7 +83,7 @@ def retrieve_evidence(run_row: dict[str, Any]) -> dict[str, Any]:
 
     evidence: dict[str, Any] = {
         "run_id": run_row["run_id"],
-        "status": run_row["status"],
+        "status": run_row.get("run_status") or run_row.get("status", "unknown"),
         "failed_nodes": [],
         "schema_drift_signals": [],
     }
@@ -247,7 +247,7 @@ def _run_llm_agent_loop(
             "role": "user",
             "content": (
                 f"Triage incident {incident_id}. "
-                f"The pipeline run '{run_row['run_id']}' has status '{run_row['status']}'. "
+                f"The pipeline run '{run_row['run_id']}' has status '{run_row.get('run_status') or run_row.get('status', 'unknown')}'. "
                 "Investigate the failure, determine root cause, assess blast radius, "
                 "and propose a safe remediation patch."
             ),
